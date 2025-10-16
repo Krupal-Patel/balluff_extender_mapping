@@ -31,6 +31,26 @@ def run_app():
                 f"port_{i}": {"pin2": "Input", "pin4": "Input"} for i in range(8)
             }
 
+        # Custom CSS for title visibility, left justification, and port label styling
+        st.markdown(
+            """
+            <style>
+            /* Title styling - increased top padding to avoid hiding */
+            h1 { font-size: 24px !important; word-wrap: break-word; padding-top: 50px; padding-bottom: 10px; }
+            /* Left justification for all column content */
+            [data-testid="column"] div, [data-testid="column"] p, [data-testid="column"] span, .stText, .stRadio > label { text-align: left !important; }
+            /* Compact layout */
+            .block-container { padding-top: 0.5rem; padding-bottom: 0rem; }
+            [data-testid="column"] { margin: 0px; padding: 0px; }
+            .stText { margin-bottom: 0px; }
+            .stRadio > div { margin: 0px; padding: 0px; flex-direction: column; align-items: flex-start; }
+            /* Port label styling (different color and size) */
+            .port-label { font-weight: bold; font-size: 16px; color: #007BFF; text-align: left; }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
         st.title("App 1: IO Link Extender Configurator")
 
         # Main two-column layout (Col1 narrow, Col2 wider for combined config+tags)
@@ -135,54 +155,38 @@ def run_app():
         with col2:
             st.subheader("Extender Balluff")
 
-            # Minimal CSS for compact layout and bold port labels
-            st.markdown(
-                """
-                <style>
-                .block-container { padding-top: 0.5rem; padding-bottom: 0rem; }
-                [data-testid="column"] { margin: 0px; padding: 0px; }
-                .stText { margin-bottom: 0px; }
-                .stCheckbox { margin: 0px; padding: 0px; }
-                .port-label { font-weight: bold; padding-left: 10px; }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-
-            # Grid layout for extender (configs + tags), with 5 columns per row for pins (including empty center)
+            # Grid layout for extender (configs + tags), with flat columns to avoid nesting issues
             for row in range(4):
-                # Port labels for the pair (using custom widths for better alignment with pins)
                 port_left = row * 2
                 port_right = port_left + 1
-                label_cols = st.columns([1.5, 1.5, 1, 1.5, 1.5])
+
+                # Row for port labels (matching pin column widths for alignment, left-justified)
+                label_cols = st.columns([1.3, 1.3, 0.3, 1.3, 1.3])
                 with label_cols[0]:
-                    st.markdown(f'<div class="port-label">Port {port_left}:</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="port-label">Port {}</div>'.format(port_left), unsafe_allow_html=True)
                 with label_cols[3]:
-                    st.markdown(f'<div class="port-label">Port {port_right}:</div>', unsafe_allow_html=True)
-                # Empty center (index 2) and unused for spacing
-                with label_cols[2]:
-                    pass
+                    st.markdown('<div class="port-label">Port {}</div>'.format(port_right), unsafe_allow_html=True)
 
-                # 5 sub-columns: Pin4_left, Pin2_left, EMPTY, Pin4_right, Pin2_right (matching widths)
-                pin_cols = st.columns([1.5, 1.5, 1, 1.5, 1.5])
+                # Row for pin labels, radios, and tags (left-justified)
+                pin_cols = st.columns([1.3, 1.3, 0.3, 1.3, 1.3])
 
-                # Process each pin in sequence (skipping index 2 for empty center)
-                pins = [(port_left, "pin4", 0), (port_left, "pin2", 1), (port_right, "pin4", 3), (port_right, "pin2", 4)]
-                for port_num, pin, col_idx in pins:
+                # Left Port Pins
+                pins_left = [("pin4", 0, port_left), ("pin2", 1, port_left)]
+                for pin, col_idx, port_num in pins_left:
                     port_key = f"port_{port_num}"
                     with pin_cols[col_idx]:
-                        st.text(f"{pin.capitalize()}")
+                        st.text(pin.capitalize())
                         pin_state = st.radio(
-                            f"{pin}_radio_{port_key}",  # Unique key for radio
+                            f"{pin}_radio_{port_key}",
                             ["IN", "OUT"],
                             index=0 if st.session_state.io_configs[port_key][pin] == "Input" else 1,
-                            label_visibility="collapsed"  # Hide default label for clean look
+                            label_visibility="collapsed"
                         )
                         st.session_state.io_configs[port_key][pin] = "Input" if pin_state == "IN" else "Output"
                         config = st.session_state.io_configs[port_key][pin]
                         if base_input is not None and base_output is not None:
                             main_byte, assigned_bit = bit_map[(port_num, pin)]
-                            tag_bit = assigned_bit  # Direct order (0-7, no reversal)
+                            tag_bit = assigned_bit
                             array = "I" if config == "Input" else "O"
                             xxx = (base_input + main_byte) if config == "Input" else (base_output + main_byte)
                             tag = f"{array}.Data[{xxx}].{tag_bit}"
@@ -190,9 +194,33 @@ def run_app():
                             tag = "N/A"
                         st.text(f"Tag: {tag}")
 
-                # Empty center column (index 2) - no content, just space
+                # Empty center
                 with pin_cols[2]:
                     pass
+
+                # Right Port Pins
+                pins_right = [("pin4", 3, port_right), ("pin2", 4, port_right)]
+                for pin, col_idx, port_num in pins_right:
+                    port_key = f"port_{port_num}"
+                    with pin_cols[col_idx]:
+                        st.text(pin.capitalize())
+                        pin_state = st.radio(
+                            f"{pin}_radio_{port_key}",
+                            ["IN", "OUT"],
+                            index=0 if st.session_state.io_configs[port_key][pin] == "Input" else 1,
+                            label_visibility="collapsed"
+                        )
+                        st.session_state.io_configs[port_key][pin] = "Input" if pin_state == "IN" else "Output"
+                        config = st.session_state.io_configs[port_key][pin]
+                        if base_input is not None and base_output is not None:
+                            main_byte, assigned_bit = bit_map[(port_num, pin)]
+                            tag_bit = assigned_bit
+                            array = "I" if config == "Input" else "O"
+                            xxx = (base_input + main_byte) if config == "Input" else (base_output + main_byte)
+                            tag = f"{array}.Data[{xxx}].{tag_bit}"
+                        else:
+                            tag = "N/A"
+                        st.text(f"Tag: {tag}")
 
             # Compute the 2 bytes for extender (after all radios, so uses updated state)
             byte0 = 0  # For Pin 4 (bits 0-7: Ports 0-7, 1=Output, 0=Input)
