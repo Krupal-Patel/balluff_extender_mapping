@@ -1,109 +1,247 @@
 import streamlit as st
-import numpy as np
-import cv2
 
-width = 400
+# Set page config as the first Streamlit command (for standalone mode)
+st.set_page_config(layout="wide")
 
-st.set_page_config(layout="centered")
-st.title('Edge detection with OpenCV')
+def handle_checkbox_change(port_num):
+    """Callback to enforce single selection: uncheck all others when one is checked."""
+    if st.session_state[f"check_{port_num}"]:  # If this one was checked
+        for i in range(8):
+            if i != port_num:
+                st.session_state[f"check_{i}"] = False
+    else:
+        # If trying to uncheck the only selected one, re-check it (enforce at least one selected)
+        st.session_state[f"check_{port_num}"] = True
 
-image = st.file_uploader("Upload an image")
+def run_app():
+    try:
+        # Initialize session state at the top (before columns)
+        if 'port_mode' not in st.session_state:
+            st.session_state.port_mode = "8 Port"
+        if 'initialized_checkboxes' not in st.session_state:
+            for i in range(8):
+                st.session_state[f"check_{i}"] = False
+            # Set default selection on first run
+            default_port = 2 if st.session_state.port_mode == "4 Port" else 0
+            st.session_state[f"check_{default_port}"] = True
+            st.session_state.initialized_checkboxes = True
+            st.session_state.previous_mode = st.session_state.port_mode
+        if 'io_configs' not in st.session_state:
+            st.session_state.io_configs = {
+                f"port_{i}": {"pin2": "Input", "pin4": "Input"} for i in range(8)
+            }
 
-if image is not None:
-    img = np.asarray(bytearray(image.read()), dtype=np.uint8)
-    img = cv2.imdecode(img, cv2.IMREAD_COLOR)
-    st.image(image, caption="Original image", width = width)
+        st.title("App 1: IO Link Extender Configurator")
 
-    st.subheader("Sobel Edge Detection using filter2d()")
-    imgCopy1 = img.copy()
-    imgCopy1 = cv2.cvtColor(imgCopy1, cv2.COLOR_BGR2GRAY)
-    sobel_x = np.array([[-1, 0, 1],
-                        [-2, 0, 2],
-                        [-1, 0, 1]], dtype=np.float32)
-    imgCopy1 = cv2.filter2D(imgCopy1, -1, sobel_x)
+        # Main two-column layout (Col1 narrow, Col2 wider for combined config+tags)
+        col1, col2 = st.columns([1, 2])
 
-    imgCopy2 = img.copy()
-    imgCopy2 = cv2.cvtColor(imgCopy2, cv2.COLOR_BGR2GRAY)
-    sobel_y = np.array([[-1, -2, -1],
-                        [0, 0, 0],
-                        [1, 2, 1]], dtype=np.float32)
-    imgCopy2 = cv2.filter2D(imgCopy2, -1, sobel_y)
-    img1_col1, img1_col2, img1_col3 = st.columns(3)
-    with img1_col1:
-        st.image(img, caption="Original image", channels = "BGR")
-    with img1_col2:
-        st.image(imgCopy1, caption="Vertical Edges", channels="GRAY")
-    with img1_col3:
-        st.image(imgCopy2, caption="Horizontal Edges", channels="GRAY")
+        # Column 1: Main Balluff (execute FIRST to set mode and selection before pre-compute)
+        with col1:
+            st.subheader("Main Balluff")
 
+            # Port mode selection
+            st.session_state.port_mode = st.radio(
+                "Select Port Mode:",
+                ["4 Port", "8 Port"],
+                index=1 if st.session_state.port_mode == "8 Port" else 0,
+                horizontal=True
+            )
 
-    st.subheader("Sobel Edge Detection using Sobel()")
-    imgCopy3 = img.copy()
-    imgCopy3 = cv2.cvtColor(imgCopy3, cv2.COLOR_BGR2GRAY)
-    dx = st.slider(label="Select dx", min_value=1, max_value=10, value=1, step=1)
-    ksize_x = max(3, 2 * dx + 1)
-    imgCopy3 = cv2.Sobel(imgCopy3, -1, dx=dx, dy = 0, ksize = ksize_x)
+            # Reset on mode change and select a default
+            if st.session_state.get('previous_mode') != st.session_state.port_mode:
+                for i in range(8):
+                    st.session_state[f"check_{i}"] = False
+                # Select first available as default
+                default_port = 2 if st.session_state.port_mode == "4 Port" else 0
+                st.session_state[f"check_{default_port}"] = True
+                st.session_state.previous_mode = st.session_state.port_mode
 
-    imgCopy4 = img.copy()
-    imgCopy4 = cv2.cvtColor(imgCopy4, cv2.COLOR_BGR2GRAY)
-    dy = st.slider(label="Select dy", min_value=1, max_value=10, value=1, step=1)
-    ksize_y = max(3, 2 * dy + 1)
-    imgCopy4 = cv2.Sobel(imgCopy4, -1, dx=0, dy = dy, ksize = ksize_y)
+            # Determine disabled ports
+            is_4_port = st.session_state.port_mode == "4 Port"
+            disabled_ports = [0, 1, 4, 5] if is_4_port else []
 
-    # Combine the edges (optional: magnitude of gradients)
-    edges = cv2.magnitude(imgCopy3.astype(np.float32), imgCopy4.astype(np.float32))
-    # Normalize the combined edges for display
-    edges = cv2.normalize(edges, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            # Sub-columns for port groups
+            sub_col1, sub_col2 = st.columns(2)
 
+            # Left sub-column: Ports 0-3 (no header)
+            with sub_col1:
+                for i in range(4):
+                    st.checkbox(
+                        f"Port {i}",
+                        value=st.session_state[f"check_{i}"],
+                        key=f"check_{i}",
+                        disabled=(i in disabled_ports),
+                        on_change=handle_checkbox_change,
+                        args=(i,)
+                    )
 
-    img2_col1, img2_col2, img2_col3 = st.columns(3)
+            # Right sub-column: Ports 4-7 (no header)
+            with sub_col2:
+                for i in range(4, 8):
+                    st.checkbox(
+                        f"Port {i}",
+                        value=st.session_state[f"check_{i}"],
+                        key=f"check_{i}",
+                        disabled=(i in disabled_ports),
+                        on_change=handle_checkbox_change,
+                        args=(i,)
+                    )
 
-    with img2_col1:
-        st.image(imgCopy3, caption="Vertical Edges", channels="GRAY")
-    with img2_col2:
-        st.image(imgCopy4, caption="Horizontal Edges", channels="GRAY")
-    with img2_col3:
-        st.image(edges, caption="Horizontal + Vertical", channels="GRAY")
+            # Display current selection (will be set below in pre-compute)
+            # Placeholder; actual display after pre-compute
 
+        # Pre-compute mappings and selected port (execute after Col1, for updated state)
+        mapping_4port = {
+            "Port 2": {"input": 8, "output": 6},
+            "Port 3": {"input": 56, "output": 38},
+            "Port 6": {"input": 104, "output": 70},
+            "Port 7": {"input": 152, "output": 102}
+        }
+        mapping_8port = {
+            "Port 0": {"input": 8, "output": 6},
+            "Port 1": {"input": 56, "output": 38},
+            "Port 2": {"input": 104, "output": 70},
+            "Port 3": {"input": 152, "output": 102},
+            "Port 4": {"input": 200, "output": 134},
+            "Port 5": {"input": 248, "output": 166},
+            "Port 6": {"input": 296, "output": 198},
+            "Port 7": {"input": 344, "output": 230}
+        }
+        mapping = mapping_4port if is_4_port else mapping_8port
 
-    st.subheader("Canny Edge Detection without Blurring")
-    imgCopy5 = img.copy()
-    threshold_1 = st.slider(label="Lower Threshold", min_value=1, max_value=500, value=100, step=1)
-    threshold_2 = st.slider(label="Upper Threshold", min_value=threshold_1, max_value=500, value=200, step=1)
-    imgCopy5 = cv2.cvtColor(imgCopy5, cv2.COLOR_BGR2GRAY)
-    imgCopy5 = cv2.Canny(imgCopy5, threshold1 = threshold_1 , threshold2 = threshold_2)
+        selected_port = None
+        for i in range(8):
+            if st.session_state.get(f"check_{i}", False):
+                selected_port = f"Port {i}"
+                break
 
-    img3_col1, img3_col2 = st.columns(2)
+        base_input = mapping.get(selected_port, {}).get("input")
+        base_output = mapping.get(selected_port, {}).get("output")
 
-    with img3_col1:
-        st.image(img, caption="Original Image", channels="BGR")
-    with img3_col2:
-        st.image(imgCopy5, caption="Canny Threshold", channels="GRAY")
+        # Custom bit mapping: (extender_port, pin) -> (main_byte, assigned_bit)
+        bit_map = {
+            (0, "pin2"): (0, 1), (0, "pin4"): (0, 0),
+            (1, "pin2"): (0, 3), (1, "pin4"): (0, 2),
+            (2, "pin2"): (0, 5), (2, "pin4"): (0, 4),
+            (3, "pin2"): (0, 7), (3, "pin4"): (0, 6),
+            (4, "pin2"): (1, 1), (4, "pin4"): (1, 0),
+            (5, "pin2"): (1, 3), (5, "pin4"): (1, 2),
+            (6, "pin2"): (1, 5), (6, "pin4"): (1, 4),
+            (7, "pin2"): (1, 7), (7, "pin4"): (1, 6),
+        }
 
-    st.subheader("Canny Edge Detection with Blurring")
-    imgCopy6 = img.copy()
+        # Combined Column 2: Configurator + Tags (execute after pre-compute)
+        with col2:
+            st.subheader("Extender Balluff")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        kernel_size_3 = st.slider(label="Gaussian Blur Kernal Size", min_value=3, max_value=21, value=3, step=2)
-    with col2:
-        sigmaX = st.slider(label="sigmaX", min_value=0, max_value=10, value=0, step=1)
-    with col3:
-        sigmaY = st.slider(label="sigmaY", min_value=0, max_value=10, value=0, step=1)
+            # Minimal CSS for compact layout and bold port labels
+            st.markdown(
+                """
+                <style>
+                .block-container { padding-top: 0.5rem; padding-bottom: 0rem; }
+                [data-testid="column"] { margin: 0px; padding: 0px; }
+                .stText { margin-bottom: 0px; }
+                .stCheckbox { margin: 0px; padding: 0px; }
+                .port-label { font-weight: bold; padding-left: 10px; }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
 
-    imgCopy6 = cv2.cvtColor(imgCopy6, cv2.COLOR_BGR2GRAY)
-    imgCopy7 = cv2.GaussianBlur(imgCopy6, (kernel_size_3, kernel_size_3), sigmaX = sigmaX, sigmaY = sigmaY)
+            # Grid layout for extender (configs + tags), with 5 columns per row for pins (including empty center)
+            for row in range(4):
+                # Port labels for the pair (using custom widths for better alignment with pins)
+                port_left = row * 2
+                port_right = port_left + 1
+                label_cols = st.columns([1.5, 1.5, 1, 1.5, 1.5])
+                with label_cols[0]:
+                    st.markdown(f'<div class="port-label">Port {port_left}:</div>', unsafe_allow_html=True)
+                with label_cols[3]:
+                    st.markdown(f'<div class="port-label">Port {port_right}:</div>', unsafe_allow_html=True)
+                # Empty center (index 2) and unused for spacing
+                with label_cols[2]:
+                    pass
 
-    threshold_3 = st.slider(label="Lower Thresh", min_value=1, max_value=500, value=100, step=1)
-    threshold_4 = st.slider(label="Upper Thresh", min_value=threshold_3, max_value=500, value=threshold_3+20, step=1)
+                # 5 sub-columns: Pin4_left, Pin2_left, EMPTY, Pin4_right, Pin2_right (matching widths)
+                pin_cols = st.columns([1.5, 1.5, 1, 1.5, 1.5])
 
-    imgCopy8 = cv2.Canny(imgCopy7, threshold1=threshold_3, threshold2=threshold_4)
+                # Process each pin in sequence (skipping index 2 for empty center)
+                pins = [(port_left, "pin4", 0), (port_left, "pin2", 1), (port_right, "pin4", 3), (port_right, "pin2", 4)]
+                for port_num, pin, col_idx in pins:
+                    port_key = f"port_{port_num}"
+                    with pin_cols[col_idx]:
+                        st.text(f"{pin.capitalize()}")
+                        pin_state = st.radio(
+                            f"{pin}_radio_{port_key}",  # Unique key for radio
+                            ["IN", "OUT"],
+                            index=0 if st.session_state.io_configs[port_key][pin] == "Input" else 1,
+                            label_visibility="collapsed"  # Hide default label for clean look
+                        )
+                        st.session_state.io_configs[port_key][pin] = "Input" if pin_state == "IN" else "Output"
+                        config = st.session_state.io_configs[port_key][pin]
+                        if base_input is not None and base_output is not None:
+                            main_byte, assigned_bit = bit_map[(port_num, pin)]
+                            tag_bit = assigned_bit  # Direct order (0-7, no reversal)
+                            array = "I" if config == "Input" else "O"
+                            xxx = (base_input + main_byte) if config == "Input" else (base_output + main_byte)
+                            tag = f"{array}.Data[{xxx}].{tag_bit}"
+                        else:
+                            tag = "N/A"
+                        st.text(f"Tag: {tag}")
 
-    img4_col1, img4_col2, img4_col3 = st.columns(3)
+                # Empty center column (index 2) - no content, just space
+                with pin_cols[2]:
+                    pass
 
-    with img4_col1:
-        st.image(imgCopy6, caption="Grayscale", channels="GRAY")
-    with img4_col2:
-        st.image(imgCopy7, caption="Blurred", channels="GRAY")
-    with img4_col3:
-        st.image(imgCopy8, caption="Blurred", channels="GRAY")
+            # Compute the 2 bytes for extender (after all radios, so uses updated state)
+            byte0 = 0  # For Pin 4 (bits 0-7: Ports 0-7, 1=Output, 0=Input)
+            byte1 = 0  # For Pin 2 (bits 0-7: Ports 0-7, 1=Output, 0=Input)
+            for i in range(8):
+                port_key = f"port_{i}"
+                if st.session_state.io_configs[port_key]["pin4"] == "Output":
+                    byte0 |= (1 << i)
+                if st.session_state.io_configs[port_key]["pin2"] == "Output":
+                    byte1 |= (1 << i)
+
+            # Display bytes at the bottom of Column 2
+            st.markdown("### Configuration Bytes")
+            st.write(f"Byte 0 (Pin 4 configs, Ports 0-7): {format(byte0, '08b')} (binary)")
+            st.write(f"Byte 1 (Pin 2 configs, Ports 0-7): {format(byte1, '08b')} (binary)")
+
+            # Reset button for extender
+            if st.button("Reset All", use_container_width=True):
+                st.session_state.io_configs = {
+                    f"port_{i}": {"pin2": "Input", "pin4": "Input"} for i in range(8)
+                }
+                # Ensure a port is selected after reset
+                if not any(st.session_state.get(f"check_{i}", False) for i in range(8)):
+                    default_port = 2 if st.session_state.port_mode == "4 Port" else 0
+                    st.session_state[f"check_{default_port}"] = True
+                st.rerun()
+
+            st.info("Changes are auto-saved in session state. Refresh to start over.")
+
+        # Finish Column 1: Add display current selection and expander (after pre-compute)
+        with col1:
+            if selected_port:
+                st.write(f"Currently selected: **{selected_port}**")
+            else:
+                st.write("No port selected.")
+
+            # Optional Reference Tag Names (in expander)
+            with st.expander("View Reference Tag Names"):
+                st.write("Byte mapping for reference tag names based on port mode.")
+                # Prepare data for mapping table
+                mapping_data = [
+                    {"Port": port, "Input Start": info["input"], "Output Start": info["output"]}
+                    for port, info in mapping.items()
+                ]
+                st.table(mapping_data)
+    
+    except Exception as e:
+        st.error(f"An error occurred in the app: {str(e)}. Please check your code or Streamlit version.")
+
+# Run the app directly when this script is executed (for standalone mode)
+if __name__ == "__main__":
+    run_app()
