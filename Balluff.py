@@ -50,8 +50,8 @@ def run_app():
             """,
             unsafe_allow_html=True
         )
-
-        st.title("App 1: IO Link Extender Configurator")
+        st.title("")
+        st.title("Balluff IO Link Extension")
 
         # Main two-column layout (Col1 narrow, Col2 wider for combined config+tags)
         col1, col2 = st.columns([1, 2])
